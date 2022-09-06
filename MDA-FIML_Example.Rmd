@@ -1,0 +1,179 @@
+---
+author: "Butovens Médé"
+date: "2/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+### Import Libraries
+# install.packages("tidyverse", "skimr", "lavaan", "semTools", "kableExtra")
+library(tidyverse)
+library(skimr)
+library(lavaan)
+library(semTools)
+library(kableExtra)
+```
+
+
+```{r}
+### Load data
+steroid_data <- read_csv("steroid.csv", col_names = T, na = "999")
+
+### structure of data
+steroid_data %>% skim()
+
+### Subset data
+steroid_data_small <- steroid_data %>% 
+  select(mayuse,
+         sterknow,
+         testknow,
+         suppknow,
+         attuse,
+         streneff,
+         teaminfo,
+         coachtol,
+         esteem,
+         impuls)
+
+### Look at smaller data set
+skim(steroid_data_small)
+
+### Look at missing data pattern
+VIM::aggr(steroid_data_small)
+```
+
+
+# 1: Estimate regression model using FIML in R
+```{r}
+### Build regression model for missing data (without auxiliary variable)
+### Model Specification
+model <- '
+### Linear regression
+mayuse ~ sterknow + testknow + suppknow
+
+### Estimate variances of predictors with missing values to include all cases in analysis, and avoid listwise deletions
+sterknow ~~ sterknow
+testknow ~~ testknow
+suppknow ~~ suppknow
+
+### Estimate covariances of predictors with missing values to include all cases in analysis, and avoid listwise deletion
+sterknow ~~ testknow
+sterknow ~~ suppknow
+testknow ~~ suppknow
+'
+### Model Estimation
+modSEM <- sem(model = model,
+              data = steroid_data_small,
+              meanstructure = T,
+              missing = 'fiml')
+
+### Print/Extract results
+summary(modSEM, rsquare = T)
+
+### Standardized results (Only reported if specifically needed or asked)
+# standardizedSolution(modSEM)
+```
+
+
+# 2: Estimate regression model using saturated correlates approach
+```{r}
+### Build regression model for missing data (with auxiliary variable)
+### Model Specification
+sat_model <- '
+### Linear regression
+mayuse ~ sterknow + testknow + suppknow
+
+### Estimate variances of predictors with missing values to include all cases in analysis, and avoid listwise deletions
+sterknow ~~ sterknow
+testknow ~~ testknow
+suppknow ~~ suppknow
+
+### Estimate covariances of predictors with missing values to include all cases in analysis, and avoid listwise deletion
+sterknow ~~ testknow
+sterknow ~~ suppknow
+testknow ~~ suppknow
+
+### Correlate Auxiliary Variables with manifest (i.e. not latent) predictor variables
+sterknow ~~ attuse + streneff + teaminfo + coachtol + esteem + impuls
+testknow ~~ attuse + streneff + teaminfo + coachtol + esteem + impuls 
+suppknow ~~ attuse + streneff + teaminfo + coachtol + esteem + impuls
+
+### Correlate Auxiliary Variables with other Auxiliary Variables
+attuse ~~ streneff
+attuse ~~ teaminfo
+attuse ~~ coachtol
+attuse ~~ esteem
+attuse ~~ impuls
+streneff ~~ teaminfo
+streneff ~~ coachtol
+streneff ~~ esteem
+streneff ~~ impuls
+teaminfo ~~ coachtol
+teaminfo ~~ esteem
+teaminfo ~~ impuls
+coachtol ~~ esteem
+coachtol ~~ impuls
+esteem ~~ impuls
+
+### Correlate Auxiliary Variables with residual of the outcome
+mayuse ~~ attuse + streneff + teaminfo + coachtol + esteem + impuls
+'
+### Model Estimation
+sat_modSEM <- sem(model = sat_model,
+              data = steroid_data_small,
+              meanstructure = T,
+              missing = 'fiml')
+
+### Print/Extract results (unstandardized)
+summary(sat_modSEM, rsquare = T)
+
+### Standardized results (Only reported if specifically needed or asked)
+# standardizedSolution(sat_modSEM)
+
+##### Alternative method to include auxiliary variables automatically (using the sem.auxiliary fct from semTools)
+aux_vars <- c("attuse", "streneff", "teaminfo", "coachtol", "esteem", "impuls")
+sat_modSEM_auto <- sem.auxiliary(model = model,
+              data = steroid_data_small,
+              aux = aux_vars)
+### Summary
+summary(sat_modSEM_auto, rsquare = T)
+
+### Standardized results (Only reported if specifically needed or asked)
+# standardizedSolution(sat_modSEM_auto)
+```
+
+
+# 3: Table that contains regression coefficients and standard errors for model without and with AV:
+```{r}
+### Create data frame with needed values 
+df <- data.frame(Predictors = c("sterknow", "testknow", "suppknow"),
+           coef.R = c(-0.048, 0.058, -0.133),
+           se.R = c(0.007, 0.052, 0.029),
+           p.value = c(0.000, 0.264, 0.000),
+           coef.MPlus = c(-0.048, 0.058, -0.133),
+           se.MPlus = c(0.007, 0.052, 0.029),
+           p.value = c(0.000, 0.0264, 0.000),
+           coef.AV.R = c(-0.048, 0.062, -0.134),
+           se.AV.R = c(0.007, 0.052, 0.029),
+           p.value = c(0.000, 0.231, 0.000),
+           coef.AV.MPlus = c(-0.048, 0.062, -0.134),
+           se.AV.Mplus = c(0.007, 0.052, 0.029),
+           p.value = c(0.000, 0.231, 0.004)
+           )
+
+### Create table
+df %>% 
+  kbl(caption = "Regression coefficients and standard errors for models without and with AVs using R and Mplus") %>% 
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+* Overall this model account for very little of the variance ($R^2 = 0.082$) seen in intention to use steroid (about 8%). The model without the auxiliary variables using FIML finds estimates to be $B_1 = -0.048$, $B_2= 0.058$, and $B_3= -0.133$ for steroid knowledge, testosterone effect knowledge and supplement knowledge respectively. Among these predictors, only steroid knowledge and supplement knowledge were significant ($p < 0.05$). More precisely the model found that for one unit of change in steroid knowledge, the intention to use **decreased** by 0.048 (everything else remaining constant). Similarly it was found that for one unit of change in supplement knowledge, the intention to use **decreased** by 0.133 (everything else remaining constant). These results were found using the software R.
+
+* Identical results were found using Mplus. 
+
+* When we compare the multiple regression model using FIML without the auxiliary variables to the one using the auxiliary variables, we notice slight changes in the estimation of the Beta coefficients (both in R and Mplus). While the estimation of Betas changed, no predictors switched from being significant to non-significant (and vice versa).
+
+* Using the FIML method on the regression model with auxiliary variables, we also found that the only significant predictors of 'intention to use' were steroid knowledge and supplement knowledge. The estimate of the coefficient for steroid knowledge, $B_1$ was the same as the model without the auxiliary variables, and the estimate of the coefficient for the supplement knowledge, $B_3$ very slightly decreased to $-0.134$. Standard errors remained the same for all coefficients. The coefficient $B_2$ changed but remained non-significant.
+
+* Identical results were found (compared to R) when including auxiliary variables in the MPlus model. 
