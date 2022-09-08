@@ -1,4 +1,5 @@
 ---
+title: "Full Information Maximum Likelihood"
 author: "Butovens Médé"
 date: "2/11/2021"
 output: html_document
